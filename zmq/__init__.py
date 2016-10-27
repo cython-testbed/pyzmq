@@ -42,16 +42,16 @@ def get_includes():
     base = dirname(__file__)
     parent = abspath(join(base, pardir))
     includes = [ parent ] + [ join(parent, base, subdir) for subdir in ('utils',) ]
-    if exists(pjoin(parent, base, 'include')):
-        includes.append(pjoin(parent, base, 'include'))
+    if exists(join(parent, base, 'include')):
+        includes.append(join(parent, base, 'include'))
     return includes
     
 def get_library_dirs():
-    """Get the library directory for linking to the bundled copy of libzmq."""
+    """Return a list of directories used to link against pyzmq's bundled libzmq."""
     from os.path import join, dirname, abspath, pardir
     base = dirname(__file__)
     parent = abspath(join(base, pardir))
-    return [ pjoin(parent, base, pardir) ]
+    return [ join(parent, base) ]
 
 
 __all__ = ['get_includes'] + sugar.__all__ + backend.__all__

@@ -2,6 +2,7 @@
 # Copyright (c) PyZMQ Developers
 # Distributed under the terms of the Modified BSD License.
 
+from datetime import timedelta
 import os
 
 import pytest
@@ -99,6 +100,24 @@ class TestFutureSocket(BaseZMQTestCase):
             with pytest.raises(zmq.Again):
                 yield s.send(b'not going anywhere')
         self.loop.run_sync(test)
+    
+    @pytest.mark.now
+    def test_send_noblock(self):
+        @gen.coroutine
+        def test():
+            s = self.socket(zmq.PUSH)
+            with pytest.raises(zmq.Again):
+                yield s.send(b'not going anywhere', flags=zmq.NOBLOCK)
+        self.loop.run_sync(test)
+
+    @pytest.mark.now
+    def test_send_multipart_noblock(self):
+        @gen.coroutine
+        def test():
+            s = self.socket(zmq.PUSH)
+            with pytest.raises(zmq.Again):
+                yield s.send_multipart([b'not going anywhere'], flags=zmq.NOBLOCK)
+        self.loop.run_sync(test)
 
     def test_recv_string(self):
         @gen.coroutine
@@ -126,6 +145,29 @@ class TestFutureSocket(BaseZMQTestCase):
             assert f.done()
             self.assertEqual(f.result(), obj)
             self.assertEqual(recvd, obj)
+        self.loop.run_sync(test)
+
+    def test_recv_json_cancelled(self):
+        @gen.coroutine
+        def test():
+            a, b = self.create_bound_pair(zmq.PUSH, zmq.PULL)
+            f = b.recv_json()
+            assert not f.done()
+            f.cancel()
+            # cycle eventloop to allow cancel events to fire
+            yield gen.sleep(0)
+            obj = dict(a=5)
+            yield a.send_json(obj)
+            with pytest.raises(future.CancelledError):
+                recvd = yield f
+            assert f.done()
+            # give it a chance to incorrectly consume the event
+            events = yield b.poll(timeout=5)
+            assert events
+            yield gen.sleep(0)
+            # make sure cancelled recv didn't eat up event
+            recvd = yield gen.with_timeout(timedelta(seconds=5), b.recv_json())
+            assert recvd == obj
         self.loop.run_sync(test)
 
     def test_recv_pyobj(self):

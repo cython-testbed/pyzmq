@@ -205,6 +205,9 @@ class _AsyncSocket(_zmq.Socket):
         """Deserialize with Futures"""
         f = self._Future()
         def _chain(_):
+            """Chain result through serialization to recvd"""
+            if f.done():
+                return
             if recvd.exception():
                 f.set_exception(recvd.exception())
             else:
@@ -216,6 +219,15 @@ class _AsyncSocket(_zmq.Socket):
                 else:
                     f.set_result(loaded)
         recvd.add_done_callback(_chain)
+
+        def _chain_cancel(_):
+            """Chain cancellation from f to recvd"""
+            if recvd.done():
+                return
+            if f.cancelled():
+                recvd.cancel()
+        f.add_done_callback(_chain_cancel)
+
         return f
 
     def poll(self, timeout=None, flags=_zmq.POLLIN):
@@ -313,12 +325,10 @@ class _AsyncSocket(_zmq.Socket):
         """Add a send event, returning the corresponding Future"""
         f = future or self._Future()
         if kind.startswith('send') and kwargs.get('flags', 0) & _zmq.DONTWAIT:
-            if kind == 'send_multipart':
-                kwargs['msg_parts'] = msg
             # short-circuit non-blocking calls
             send = getattr(self._shadow_sock, kind)
             try:
-                r = send(**kwargs)
+                r = send(msg, **kwargs)
             except Exception as e:
                 f.set_exception(e)
             else:
@@ -345,6 +355,9 @@ class _AsyncSocket(_zmq.Socket):
     
     def _handle_recv(self):
         """Handle recv events"""
+        if not self._shadow_sock.events & POLLIN:
+            # event triggered, but state may have been changed between trigger and callback
+            return
         f = None
         while self._recv_futures:
             f, kind, kwargs, _ = self._recv_futures.pop(0)
@@ -380,6 +393,9 @@ class _AsyncSocket(_zmq.Socket):
             f.set_result(result)
     
     def _handle_send(self):
+        if not self._shadow_sock.events & POLLOUT:
+            # event triggered, but state may have been changed between trigger and callback
+            return
         f = None
         while self._send_futures:
             f, kind, kwargs, msg = self._send_futures.pop(0)

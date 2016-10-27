@@ -34,7 +34,7 @@ before_install:
       popd
       export ZMQ=/usr/local
     fi
-  - pip install https://github.com/cython/cython/archive/master.zip --install-option=--no-cython-compile
+  - pip install https://github.com/cython/cython/archive/0.25.1.zip --install-option=--no-cython-compile
   - pip install -r test-requirements.txt
 
 install:

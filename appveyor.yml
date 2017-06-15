@@ -7,6 +7,12 @@ environment:
     CMD_IN_ENV: "cmd /E:ON /V:ON /C .\\tools\\run_with_env.cmd"
 
   matrix:
+    - PYTHON: "C:\\Python36"
+      PYTHON_VERSION: "3.6.x"
+      PYTHON_ARCH: 32
+    - PYTHON: "C:\\Python36-x64"
+      PYTHON_VERSION: "3.6.x"
+      PYTHON_ARCH: 64
     - PYTHON: "C:\\Python35"
       PYTHON_VERSION: "3.5.x"
       PYTHON_ARCH: 32
@@ -51,7 +57,7 @@ install:
 
   # Upgrade to the latest version of pip to avoid it displaying warnings
   # about it being out of date.
-  - "%CMD_IN_ENV% pip install --disable-pip-version-check --user --upgrade pip setuptools wheel cython"
+  - "%CMD_IN_ENV% pip install --disable-pip-version-check --user --upgrade pip setuptools wheel cython -r test-requirements.txt"
 
 build_script:
   # Build the compiled extension
@@ -62,6 +68,7 @@ build_script:
 test_script:
   # Run the project tests
   - ps: cmd /c 'cd dist & python -c "import zmq; print(zmq.zmq_version())"'
+  - ps: cmd /c 'cd dist & python -m pytest -vsx --pyargs zmq.tests.test_socket'
 
 after_test:
   # If tests are successful, create binary packages for the project.

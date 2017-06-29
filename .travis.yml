@@ -36,6 +36,10 @@ before_install:
     fi
   - pip install https://github.com/cython/cython/archive/9b3dd8ec9d0b699438bb5f179d4812fbbbae73ed.zip --install-option=--no-cython-compile
   - pip install -r test-requirements.txt
+  - |
+    if [[ "$NOTORNADO" == "1" ]]; then
+      pip uninstall -yq tornado
+    fi
 
 install:
   - python setup.py build_ext --inplace --zmq=$ZMQ
@@ -44,6 +48,10 @@ matrix:
   include:
     - python: 3.6-dev
       env: ZMQ=bundled
+    - python: 3.6
+      env:
+        - ZMQ=
+        - NOTORNADO=1
     - python: 3.5
       env: ZMQ=libzmq
     - python: 3.4

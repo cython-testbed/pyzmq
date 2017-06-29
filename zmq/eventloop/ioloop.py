@@ -15,24 +15,12 @@ from __future__ import absolute_import, division, with_statement
 import time
 import warnings
 
-
-try:
-    import tornado
-    tornado_version = tornado.version_info
-except (ImportError, AttributeError):
-    tornado_version = ()
-
-try:
-    # tornado ≥ 4
-    from tornado import ioloop
-    if not hasattr(ioloop.IOLoop, 'configurable_default'):
-        raise ImportError("Tornado too old")
-    from tornado.ioloop import PollIOLoop, PeriodicCallback
-    from tornado.log import gen_log
-except ImportError:
-    from .minitornado import ioloop
-    from .minitornado.ioloop import PollIOLoop, PeriodicCallback
-    from .minitornado.log import gen_log
+import tornado
+from tornado import ioloop
+if not hasattr(ioloop.IOLoop, 'configurable_default'):
+    raise ImportError("Tornado too old: %s" % getattr(tornado, 'version', 'unknown'))
+from tornado.ioloop import PollIOLoop, PeriodicCallback
+from tornado.log import gen_log
 
 
 class DelayedCallback(PeriodicCallback):
@@ -98,8 +86,7 @@ class ZMQIOLoop(ioloop.IOLoop.configurable_default()):
         """
         # install ZMQIOLoop as the active IOLoop implementation
         # when using tornado 3
-        if tornado_version >= (3,):
-            PollIOLoop.configure(cls)
+        PollIOLoop.configure(cls)
         _deprecated()
         loop = PollIOLoop.instance(*args, **kwargs)
         return loop
@@ -110,8 +97,7 @@ class ZMQIOLoop(ioloop.IOLoop.configurable_default()):
         """
         # install ZMQIOLoop as the active IOLoop implementation
         # when using tornado 3
-        if tornado_version >= (3,):
-            PollIOLoop.configure(cls)
+        PollIOLoop.configure(cls)
         _deprecated()
         loop = PollIOLoop.current(*args, **kwargs)
         return loop

@@ -1,12 +1,14 @@
 language: python
+dist: trusty
 
 cache:
-    apt
-    pip
+  - apt
+  - pip
 python:
   - 2.7
   - 3.6
-  - pypy
+  - pypy2.7-5.8.0
+  - pypy3.5-5.8.0
 env:
     - ZMQ=
     - ZMQ=bundled
@@ -27,15 +29,20 @@ before_install:
       unzip libzmq.zip
       pushd "$ZMQ-master"
       ./autogen.sh
-      ./configure
+      ./configure --enable-drafts
       make -j
       sudo make install
       sudo ldconfig
       popd
       export ZMQ=/usr/local
+      export ZMQ_DRAFT_API=1
     fi
   - pip install https://github.com/cython/cython/archive/19d890ecbf4d47f9114d32af646208187608e583.zip --install-option=--no-cython-compile
   - pip install -r test-requirements.txt
+  - |
+    if [[ "$TORNADO" == "master" ]]; then
+      pip install https://github.com/tornadoweb/tornado/archive/master.zip
+    fi
   - |
     if [[ "$NOTORNADO" == "1" ]]; then
       pip uninstall -yq tornado
@@ -46,12 +53,22 @@ install:
 
 matrix:
   include:
+    - python: pypy
+      env: ZMQ=bundled
     - python: 3.6-dev
       env: ZMQ=bundled
     - python: 3.6
       env:
         - ZMQ=
         - NOTORNADO=1
+    - python: 3.6
+      env:
+        - ZMQ=
+        - TORNADO=master
+    - python: 2.7
+      env:
+        - ZMQ=
+        - TORNADO=master
     - python: 3.5
       env: ZMQ=libzmq
     - python: 3.4
@@ -62,9 +79,6 @@ matrix:
       env: ZMQ=zeromq3-x
     - python: 3.3
       env: ZMQ=
-    # FIXME: pypy3 is still on unsupported Python 3.2
-    # - python: pypy3
-    #   env: ZMQ=
     - python: nightly
       env: ZMQ=
     - python: nightly

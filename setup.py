@@ -30,7 +30,7 @@ from traceback import print_exc
 # do this before importing anything from distutils
 doing_bdist = any(arg.startswith('bdist') for arg in sys.argv[1:])
 
-if any(bdist in sys.argv for bdist in ['bdist_wheel', 'bdist_egg']):
+if any(bdist in sys.argv for bdist in ['sdist', 'bdist_wheel', 'bdist_egg']):
     import setuptools
 
 import distutils
@@ -107,9 +107,11 @@ for idx, arg in enumerate(list(sys.argv)):
 
 for idx, arg in enumerate(list(sys.argv)):
     if arg.startswith('--libzmq='):
-        sys.argv.pop(idx)
+        sys.argv.remove(arg)
         libzmq_name = arg.split("=",1)[1]
-        break
+    if arg == '--enable-drafts':
+        sys.argv.remove(arg)
+        os.environ['ZMQ_DRAFT_API'] = '1'
 
 #-----------------------------------------------------------------------------
 # Configuration (adapted from h5py: http://h5py.googlecode.com)
@@ -183,6 +185,16 @@ def check_pkgconfig():
 
     return zmq_config
 
+def _add_rpath(settings, path):
+    """Add rpath to settings
+    
+    Implemented here because distutils runtime_library_dirs doesn't do anything on darwin
+    """
+    if sys.platform == 'darwin':
+        settings['extra_link_args'].extend(['-Wl,-rpath','-Wl,%s' % path])
+    else:
+        settings['runtime_library_dirs'].append(path)
+
 def settings_from_prefix(prefix=None, bundle_libzmq_dylib=False):
     """load appropriate library/include settings from ZMQ prefix"""
     settings = {}
@@ -242,17 +254,13 @@ def settings_from_prefix(prefix=None, bundle_libzmq_dylib=False):
         if bundle_libzmq_dylib:
             # bdist should link against bundled libzmq
             settings['library_dirs'].append('zmq')
-            if sys.platform == 'darwin':
-                pass
-                # unused rpath args for OS X:
-                # settings['extra_link_args'] = ['-Wl,-rpath','-Wl,$ORIGIN/..']
-            else:
-                settings['runtime_library_dirs'] += ['$ORIGIN/..']
-        elif sys.platform != 'darwin':
-            info("%r" % settings)
-            settings['runtime_library_dirs'] += [
-                os.path.abspath(x) for x in settings['library_dirs']
-            ]
+            _add_rpath(settings, '$ORIGIN/..')
+            if sys.platform == 'darwin' and pypy:
+                settings['extra_link_args'].extend(['-undefined', 'dynamic_lookup'])
+        else:
+            for path in settings['library_dirs']:
+                _add_rpath(settings, os.path.abspath(path))
+    info(settings)
     
     return settings
 
@@ -336,14 +344,16 @@ class Configure(build_ext):
                 cfg['have_sys_un_h'] = False
             else:
                 cfg['have_sys_un_h'] = True
-        
+
             self.save_config('config', cfg)
-    
+
         if cfg['have_sys_un_h']:
             settings['define_macros'] = [('HAVE_SYS_UN_H', 1)]
-    
+
         settings.setdefault('define_macros', [])
-    
+        if cfg.get('zmq_draft_api'):
+            settings['define_macros'].append(('ZMQ_BUILD_DRAFT_API', 1))
+
         # include internal directories
         settings.setdefault('include_dirs', [])
         settings['include_dirs'] += [pjoin('zmq', sub) for sub in (
@@ -663,12 +673,7 @@ class Configure(build_ext):
         if self.bundle_libzmq_dylib and not sys.platform.startswith('win'):
             # rpath slightly differently here, because libzmq not in .. but ../zmq:
             settings['library_dirs'] = ['zmq']
-            if sys.platform == 'darwin':
-                pass
-                # unused rpath args for OS X:
-                # settings['extra_link_args'] = ['-Wl,-rpath','-Wl,$ORIGIN/../zmq']
-            else:
-                settings['runtime_library_dirs'] = [ os.path.abspath(pjoin('.', 'zmq')) ]
+            _add_rpath(settings, os.path.abspath(pjoin('.', 'zmq')))
         line()
         info("Configure: Autodetecting ZMQ settings...")
         info("    Custom ZMQ dir:       %s" % prefix)

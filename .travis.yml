@@ -37,7 +37,7 @@ before_install:
       export ZMQ=/usr/local
       export ZMQ_DRAFT_API=1
     fi
-  - pip install https://github.com/cython/cython/archive/19d890ecbf4d47f9114d32af646208187608e583.zip --install-option=--no-cython-compile
+  - pip install https://github.com/cython/cython/archive/release.zip --install-option=--no-cython-compile
   - pip install -r test-requirements.txt
   - |
     if [[ "$TORNADO" == "master" ]]; then

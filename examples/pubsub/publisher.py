@@ -23,22 +23,22 @@ def sync(bind_to):
     ctx = zmq.Context.instance()
     s = ctx.socket(zmq.REP)
     s.bind(sync_with)
-    print "Waiting for subscriber to connect..."
+    print("Waiting for subscriber to connect...")
     s.recv()
-    print "   Done."
+    print("   Done.")
     s.send('GO')
 
 def main():
     if len (sys.argv) != 4:
-        print 'usage: publisher <bind-to> <array-size> <array-count>'
+        print('usage: publisher <bind-to> <array-size> <array-count>')
         sys.exit (1)
 
     try:
         bind_to = sys.argv[1]
         array_size = int(sys.argv[2])
         array_count = int (sys.argv[3])
-    except (ValueError, OverflowError), e:
-        print 'array-size and array-count must be integers'
+    except (ValueError, OverflowError) as e:
+        print('array-size and array-count must be integers')
         sys.exit (1)
 
     ctx = zmq.Context()
@@ -47,11 +47,11 @@ def main():
 
     sync(bind_to)
 
-    print "Sending arrays..."
+    print("Sending arrays...")
     for i in range(array_count):
         a = numpy.random.rand(array_size, array_size)
         s.send_pyobj(a)
-    print "   Done."
+    print("   Done.")
 
 if __name__ == "__main__":
     main()

@@ -8,7 +8,7 @@ def sender():
     sender.connect('inproc://polltest1')
     sender.connect('inproc://polltest2')
 
-    for i in xrange(10):
+    for i in range(10):
         sender.send('test %d' % i)
         gevent.sleep(1)
 
@@ -32,11 +32,11 @@ msgcnt = 0
 while msgcnt < 10:
     socks = dict(poller.poll())
     if receiver1 in socks and socks[receiver1] == zmq.POLLIN:
-        print "Message from receiver1: %s" % receiver1.recv()
+        print("Message from receiver1: %s" % receiver1.recv())
         msgcnt += 1
 
     if receiver2 in socks and socks[receiver2] == zmq.POLLIN:
-        print "Message from receiver2: %s" % receiver2.recv()
+        print("Message from receiver2: %s" % receiver2.recv())
         msgcnt += 1
 
-print "%d messages received" % msgcnt
+print("%d messages received" % msgcnt)

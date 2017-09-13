@@ -20,6 +20,11 @@
 
 import zmq
 
+try:
+    raw_input          # Python 2
+except NameError:
+    raw_input = input  # Python 3
+
 def main(addr, who):
 
     ctx = zmq.Context()
@@ -34,6 +39,6 @@ def main(addr, who):
 if __name__ == '__main__':
     import sys
     if len(sys.argv) != 3:
-        print "usage: prompt.py <address> <username>"
+        print("usage: prompt.py <address> <username>")
         raise SystemExit
     main(sys.argv[1], sys.argv[2])

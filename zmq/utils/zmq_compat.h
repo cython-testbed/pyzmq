@@ -33,6 +33,12 @@
     #define ZMQ_FD_T int
 #endif
 
+#if ZMQ_VERSION_MAJOR >= 4 && ZMQ_VERSION_MINOR >= 2
+    // Nothing to remove
+#else
+    #define zmq_curve_public(z85_public_key, z85_secret_key) _missing
+#endif
+
 // use unambiguous aliases for zmq_send/recv functions
 
 #if ZMQ_VERSION_MAJOR >= 4
@@ -66,6 +72,7 @@
 #else
     #define zmq_msg_gets(msg, prop) _missing
     #define zmq_has(capability) _missing
+    #define zmq_proxy_steerable(in, out, mon, ctrl) _missing
 #endif
 
 #if ZMQ_VERSION_MAJOR >= 3

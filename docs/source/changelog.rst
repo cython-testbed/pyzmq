@@ -9,6 +9,32 @@ Changes in PyZMQ
 This is a coarse summary of changes in pyzmq versions.
 For a full changelog, consult the `git log <https://github.com/zeromq/pyzmq/commits>`_.
 
+
+17.1.2
+======
+
+- Fix possible hang when working with asyncio
+- Remove some outdated workarounds for old Cython versions
+- Fix some compilation with custom compilers
+- Remove unneeded link of libstdc++ on PyPy
+
+
+17.1.0
+======
+
+- Bump bundled libzmq to 4.2.5
+- Improve tornado 5.0 compatibility
+  (use :meth:`~tornado.ioloop.IOLoop.current` instead of :meth:`~tornado.ioloop.IOLoop.instance`
+  to get default loops in :class:`.ZMQStream` and :class:`.IOLoopAuthenticator`)
+- Add support for :func:`.curve_public`
+- Remove delayed import of json in ``send/recv_json``
+- Add :meth:`.Authenticator.configure_curve_callback`
+- Various build fixes
+- sdist sources generated with Cython 0.28.3
+- Stop building wheels for Python 3.4, start building wheels for Python 3.7
+
+
+
 17.0.0
 ======
 
@@ -34,6 +60,13 @@ For a full changelog, consult the `git log <https://github.com/zeromq/pyzmq/comm
 
   .. seealso::
     :ref:`draft`
+
+16.0.4
+======
+
+- Regenerate Cython sources in sdists with Cython 0.27.3,
+  fixing builds on CPython 3.7.
+- Add warning when using bundled tornado, which was deprecated too quietly in 14.x.
 
 16.0.3
 ======

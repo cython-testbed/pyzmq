@@ -40,6 +40,7 @@ from distutils.ccompiler import new_compiler
 from distutils.extension import Extension
 from distutils.command.build_ext import build_ext
 from distutils.command.sdist import sdist
+from distutils.sysconfig import customize_compiler
 from distutils.version import LooseVersion as V
 
 from glob import glob
@@ -93,7 +94,7 @@ for idx, arg in enumerate(list(sys.argv)):
         configure_idx = idx
     elif arg == 'fetch_libzmq':
         fetch_idx = idx
-    
+
     if arg.startswith('--zmq='):
         sys.argv.pop(idx)
         if configure_idx < 0:
@@ -114,7 +115,7 @@ for idx, arg in enumerate(list(sys.argv)):
         os.environ['ZMQ_DRAFT_API'] = '1'
 
 #-----------------------------------------------------------------------------
-# Configuration (adapted from h5py: http://h5py.googlecode.com)
+# Configuration (adapted from h5py: https://www.h5py.org/)
 #-----------------------------------------------------------------------------
 
 # --- compiler settings -------------------------------------------------
@@ -187,7 +188,7 @@ def check_pkgconfig():
 
 def _add_rpath(settings, path):
     """Add rpath to settings
-    
+
     Implemented here because distutils runtime_library_dirs doesn't do anything on darwin
     """
     if sys.platform == 'darwin':
@@ -202,11 +203,11 @@ def settings_from_prefix(prefix=None, bundle_libzmq_dylib=False):
     settings['include_dirs'] = []
     settings['library_dirs'] = []
     settings['runtime_library_dirs'] = []
-    settings['extra_link_args'] = [] 
-    
+    settings['extra_link_args'] = []
+
     if sys.platform.startswith('win'):
         settings['libraries'].append(libzmq_name)
-        
+
         if prefix:
             settings['include_dirs'] += [pjoin(prefix, 'include')]
             settings['library_dirs'] += [pjoin(prefix, 'lib')]
@@ -261,7 +262,7 @@ def settings_from_prefix(prefix=None, bundle_libzmq_dylib=False):
             for path in settings['library_dirs']:
                 _add_rpath(settings, os.path.abspath(path))
     info(settings)
-    
+
     return settings
 
 class LibZMQVersionError(Exception):
@@ -275,11 +276,11 @@ class Configure(build_ext):
     """Configure command adapted from h5py"""
 
     description = "Discover ZMQ version and features"
-    
+
     user_options = build_ext.user_options + [
         ('zmq=', None, "libzmq install prefix"),
         ('build-base=', 'b', "base directory for build library"), # build_base from build
-        
+
     ]
     def initialize_options(self):
         build_ext.initialize_options(self)
@@ -295,7 +296,7 @@ class Configure(build_ext):
         if self.zmq is not None:
             merge(self.config, config_from_prefix(self.zmq))
         self.init_settings_from_config()
-    
+
     def save_config(self, name, cfg):
         """write config to JSON"""
         save_config(name, cfg, self.build_base)
@@ -306,7 +307,7 @@ class Configure(build_ext):
         build_lib_utils = os.path.join(self.build_lib, 'zmq', 'utils')
         if os.path.exists(build_lib_utils):
             save_config(name, cfg, build_lib_utils)
-    
+
     def init_settings_from_config(self):
         """set up compiler settings, based on config"""
         cfg = self.config
@@ -326,7 +327,7 @@ class Configure(build_ext):
             settings = bundled_settings(self.debug)
         else:
             settings = settings_from_prefix(cfg['zmq_prefix'], self.bundle_libzmq_dylib)
-        
+
         if 'have_sys_un_h' not in cfg:
             # don't link against anything when checking for sys/un.h
             minus_zmq = copy.deepcopy(settings)
@@ -347,12 +348,16 @@ class Configure(build_ext):
 
             self.save_config('config', cfg)
 
-        if cfg['have_sys_un_h']:
-            settings['define_macros'] = [('HAVE_SYS_UN_H', 1)]
-
         settings.setdefault('define_macros', [])
+        if cfg['have_sys_un_h']:
+            settings['define_macros'].append(('HAVE_SYS_UN_H', 1))
+
         if cfg.get('zmq_draft_api'):
             settings['define_macros'].append(('ZMQ_BUILD_DRAFT_API', 1))
+
+        use_static_zmq = cfg.get('use_static_zmq', 'False').upper()
+        if use_static_zmq in ('TRUE', '1'):
+            settings['define_macros'].append(('ZMQ_STATIC', '1'))
 
         # include internal directories
         settings.setdefault('include_dirs', [])
@@ -363,13 +368,18 @@ class Configure(build_ext):
         )]
         if sys.platform.startswith('win') and sys.version_info < (3, 3):
             settings['include_dirs'].insert(0, pjoin('buildutils', 'include_win32'))
-        
+
+        settings.setdefault('libraries', [])
+        # Explicitly link dependencies, not necessary if zmq is dynamic
+        if sys.platform.startswith('win'):
+            settings['libraries'].extend(('ws2_32', 'iphlpapi', 'advapi32'))
+
         for ext in self.distribution.ext_modules:
             if ext.name.startswith('zmq.lib'):
                 continue
             for attr, value in settings.items():
                 setattr(ext, attr, value)
-        
+
         self.compiler_settings = settings
         self.save_config('compiler', settings)
 
@@ -382,7 +392,7 @@ class Configure(build_ext):
             if not self.config['zmq_prefix'] and not os.path.exists(local_dll):
                 fatal("ZMQ directory must be specified on Windows via setup.cfg"
                 " or 'python setup.py configure --zmq=/path/to/zeromq2'")
-            
+
             try:
                 shutil.copy(pjoin(self.config['zmq_prefix'], 'lib', libzmq_name + '.dll'), local_dll)
             except Exception:
@@ -406,7 +416,7 @@ class Configure(build_ext):
             return compiler
         else:
             return compiler.compiler_type
-    
+
     @property
     def cross_compiling(self):
         return self.config['bdist_egg'].get('plat-name', sys.platform) != sys.platform
@@ -433,7 +443,7 @@ class Configure(build_ext):
         zmq_prefix = cfg['zmq_prefix']
         detected = self.test_build(zmq_prefix, self.compiler_settings)
         # now check the libzmq version
-        
+
         vers = tuple(detected['vers'])
         vs = v_str(vers)
         if cfg['allow_legacy_libzmq']:
@@ -447,9 +457,9 @@ class Configure(build_ext):
             if zmq_prefix:
                 msg.append("    ZMQ_PREFIX=%s" % zmq_prefix)
             if vers >= min_legacy_zmq:
-                
+
                 msg.append("    Explicitly allow legacy zmq by specifying `--zmq=/zmq/prefix`")
-            
+
             raise LibZMQVersionError('\n'.join(msg))
         if vers < min_good_zmq:
             msg = [
@@ -480,23 +490,23 @@ class Configure(build_ext):
                     warn("Could not copy " + libzmq_name + " into zmq/, which is usually necessary on Windows."
                     "Please specify zmq prefix via configure --zmq=/path/to/zmq or copy "
                     + libzmq_name + " into zmq/ manually.")
-    
+
     def bundle_libzmq_extension(self):
         bundledir = "bundled"
         ext_modules = self.distribution.ext_modules
         if ext_modules and any(m.name == 'zmq.libzmq' for m in ext_modules):
             # I've already been run
             return
-        
+
         line()
         info("Using bundled libzmq")
-        
+
         # fetch sources for libzmq extension:
         if not os.path.exists(bundledir):
             os.makedirs(bundledir)
-        
+
         fetch_libzmq(bundledir)
-        
+
         stage_platform_hpp(pjoin(bundledir, 'zeromq'))
 
         sources = [pjoin('buildutils', 'initlibzmq.c')]
@@ -529,14 +539,14 @@ class Configure(build_ext):
             sources=sources,
             include_dirs=includes,
         )
-        
+
         # register the extension:
         self.distribution.ext_modules.insert(0, libzmq)
-        
+
         # use tweetnacl to provide CURVE support
         libzmq.define_macros.append(('ZMQ_HAVE_CURVE', 1))
         libzmq.define_macros.append(('ZMQ_USE_TWEETNACL', 1))
-        
+
         # select polling subsystem based on platform
         if sys.platform  == 'darwin' or 'bsd' in sys.platform:
             libzmq.define_macros.append(('ZMQ_USE_KQUEUE', 1))
@@ -547,13 +557,13 @@ class Configure(build_ext):
         else:
             # this may not be sufficiently precise
             libzmq.define_macros.append(('ZMQ_USE_POLL', 1))
-        
+
         if sys.platform.startswith('win'):
             # include defines from zeromq msvc project:
             libzmq.define_macros.append(('FD_SETSIZE', 16384))
             libzmq.define_macros.append(('DLL_EXPORT', 1))
             libzmq.define_macros.append(('_CRT_SECURE_NO_WARNINGS', 1))
-            
+
             # When compiling the C++ code inside of libzmq itself, we want to
             # avoid "warning C4530: C++ exception handler used, but unwind
             # semantics are not enabled. Specify /EHsc".
@@ -563,8 +573,8 @@ class Configure(build_ext):
                 libzmq.define_macros.append(('ZMQ_HAVE_MINGW32', 1))
 
             # And things like sockets come from libraries that must be named.
-            libzmq.libraries.extend(['rpcrt4', 'ws2_32', 'advapi32'])
-            
+            libzmq.libraries.extend(['rpcrt4', 'ws2_32', 'advapi32', 'iphlpapi'])
+
             # bundle MSCVP redist
             if self.config['bundle_msvcp']:
                 cc = new_compiler(compiler=self.compiler_type)
@@ -593,6 +603,7 @@ class Configure(build_ext):
 
             # check if we need to link against Realtime Extensions library
             cc = new_compiler(compiler=self.compiler_type)
+            customize_compiler(cc)
             cc.output_dir = self.build_temp
             if not sys.platform.startswith(('darwin', 'freebsd')):
                 line()
@@ -602,34 +613,29 @@ class Configure(build_ext):
                     libzmq.libraries.append('rt')
                 else:
                     info("ok")
-                
-                if pypy:
-                    # seem to need explicit libstdc++ on linux + pypy
-                    # not sure why
-                    libzmq.libraries.append("stdc++")
-        
+
         # copy the header files to the source tree.
         bundledincludedir = pjoin('zmq', 'include')
         if not os.path.exists(bundledincludedir):
             os.makedirs(bundledincludedir)
         if not os.path.exists(pjoin(self.build_lib, bundledincludedir)):
             os.makedirs(pjoin(self.build_lib, bundledincludedir))
-        
+
         for header in glob(pjoin(bundledir, 'zeromq', 'include', '*.h')):
             shutil.copyfile(header, pjoin(bundledincludedir, basename(header)))
             shutil.copyfile(header, pjoin(self.build_lib, bundledincludedir, basename(header)))
-        
+
         # update other extensions, with bundled settings
         self.config['libzmq_extension'] = True
         self.init_settings_from_config()
         self.save_config('config', self.config)
-        
-    
+
+
     def fallback_on_bundled(self):
         """Couldn't build, fallback after waiting a while"""
-        
+
         line()
-        
+
         warn('\n'.join([
         "Couldn't find an acceptable libzmq on the system.",
         "",
@@ -644,7 +650,7 @@ class Configure(build_ext):
         "      or specify zmq's location with `--zmq=/usr/local`",
         "",
         ]))
-        
+
         info('\n'.join([
             "You can skip all this detection/waiting nonsense if you know",
             "you want pyzmq to bundle libzmq as an extension by passing:",
@@ -655,17 +661,17 @@ class Configure(build_ext):
             "unless you interrupt me (^C) in the next 10 seconds...",
             "",
         ]))
-        
+
         for i in range(10,0,-1):
             sys.stdout.write('\r%2i...' % i)
             sys.stdout.flush()
             time.sleep(1)
-        
+
         info("")
-        
+
         return self.bundle_libzmq_extension()
-        
-    
+
+
     def test_build(self, prefix, settings):
         """do a test build ob libzmq"""
         self.create_tempdir()
@@ -681,31 +687,31 @@ class Configure(build_ext):
             detected = detect_zmq(self.tempdir, compiler=self.compiler_type, **settings)
         finally:
             self.erase_tempdir()
-        
+
         info("    ZMQ version detected: %s" % v_str(detected['vers']))
-        
+
         return detected
-    
+
 
     def finish_run(self):
         self.save_config('config', self.config)
         line()
-    
+
     def run(self):
         cfg = self.config
-        
+
         if cfg['libzmq_extension']:
             self.bundle_libzmq_extension()
             self.finish_run()
             return
-        
+
         # When cross-compiling and zmq is given explicitly, we can't testbuild
         # (as we can't testrun the binary), we assume things are alright.
         if cfg['skip_check_zmq'] or self.cross_compiling:
             warn("Skipping zmq version check")
             self.finish_run()
             return
-        
+
         zmq_prefix = cfg['zmq_prefix']
         # There is no available default on Windows, so start with fallback unless
         # zmq was given explicitly, or libzmq extension was explicitly prohibited.
@@ -715,10 +721,10 @@ class Configure(build_ext):
             self.fallback_on_bundled()
             self.finish_run()
             return
-        
+
         if zmq_prefix and self.bundle_libzmq_dylib and not sys.platform.startswith('win'):
             copy_and_patch_libzmq(zmq_prefix, libzmq_name+lib_ext)
-        
+
         # first try with given config or defaults
         try:
             self.check_zmq_version()
@@ -730,7 +736,7 @@ class Configure(build_ext):
         else:
             self.finish_run()
             return
-        
+
         # try fallback on /usr/local on *ix if no prefix is given
         if not zmq_prefix and not sys.platform.startswith('win'):
             info("Failed with default libzmq, trying again with /usr/local")
@@ -749,32 +755,32 @@ class Configure(build_ext):
                 # settings for the extensions with /usr/local prefix
                 self.finish_run()
                 return
-        
+
         # finally, fallback on bundled
-        
+
         if cfg['no_libzmq_extension']:
             fatal("Falling back on bundled libzmq,"
             " but config has explicitly prohibited building the libzmq extension."
             )
-        
+
         self.fallback_on_bundled()
-        
+
         self.finish_run()
 
 
 class FetchCommand(Command):
     """Fetch libzmq sources, that's it."""
-    
+
     description = "Fetch libzmq sources into bundled/zeromq"
-    
+
     user_options = [ ]
-    
+
     def initialize_options(self):
         pass
-    
+
     def finalize_options(self):
         pass
-    
+
     def run(self):
         # fetch sources for libzmq extension:
         bundledir = "bundled"
@@ -786,7 +792,7 @@ class FetchCommand(Command):
         fetch_libzmq(bundledir)
         for tarball in glob(pjoin(bundledir, '*.tar.gz')):
             os.remove(tarball)
-        
+
 
 
 class TestCommand(Command):
@@ -801,7 +807,7 @@ class TestCommand(Command):
 
     def finalize_options(self):
         pass
-    
+
     def run(self):
         """Run the test suite with py.test"""
         # crude check for inplace build:
@@ -813,7 +819,7 @@ class TestCommand(Command):
             "You must build pyzmq with 'python setup.py build_ext --inplace' for 'python setup.py test' to work.",
             "If you did build pyzmq in-place, then this is a real error."]))
             sys.exit(1)
-        
+
         info("Testing pyzmq-%s with libzmq-%s" % (zmq.pyzmq_version(), zmq.zmq_version()))
         p = Popen([sys.executable, '-m', 'pytest', '-v', os.path.join('zmq', 'tests')])
         p.wait()
@@ -821,44 +827,44 @@ class TestCommand(Command):
 
 class GitRevisionCommand(Command):
     """find the current git revision and add it to zmq.sugar.version.__revision__"""
-    
+
     description = "Store current git revision in version.py"
-    
+
     user_options = [ ]
-    
+
     def initialize_options(self):
         self.version_py = pjoin('zmq','sugar','version.py')
-    
+
     def run(self):
         try:
             p = Popen('git log -1'.split(), stdin=PIPE, stdout=PIPE, stderr=PIPE)
         except IOError:
             warn("No git found, skipping git revision")
             return
-        
+
         if p.wait():
             warn("checking git branch failed")
             info(p.stderr.read())
             return
-        
+
         line = p.stdout.readline().decode().strip()
         if not line.startswith('commit'):
             warn("bad commit line: %r" % line)
             return
-        
+
         rev = line.split()[-1]
-        
+
         # now that we have the git revision, we can apply it to version.py
         with open(self.version_py) as f:
             lines = f.readlines()
-        
+
         for i,line in enumerate(lines):
             if line.startswith('__revision__'):
                 lines[i] = "__revision__ = '%s'\n"%rev
                 break
         with open(self.version_py, 'w') as f:
             f.writelines(lines)
-    
+
     def finalize_options(self):
         pass
 
@@ -879,45 +885,46 @@ class CleanCommand(Command):
     def run(self):
         _clean_me = []
         _clean_trees = []
-        
+
         for d in ('build', 'dist', 'conf'):
             if os.path.exists(d):
                 _clean_trees.append(d)
-        
+
         for root, dirs, files in os.walk('buildutils'):
             if any(root.startswith(pre) for pre in _clean_trees):
                 continue
             for f in files:
                 if os.path.splitext(f)[-1] == '.pyc':
                     _clean_me.append(pjoin(root, f))
-            
+
             if '__pycache__' in dirs:
                 _clean_trees.append(pjoin(root, '__pycache__'))
 
         for root, dirs, files in os.walk('zmq'):
             if any(root.startswith(pre) for pre in _clean_trees):
                 continue
-            
+
             for f in files:
                 if os.path.splitext(f)[-1] in ('.pyc', '.so', '.o', '.pyd', '.json'):
                     _clean_me.append(pjoin(root, f))
 
+            # remove generated cython files
+            if self.all:
+                for f in files:
+                    f2 = os.path.splitext(f)
+                    if f2[1] == '.c' and os.path.isfile(os.path.join(root, f2[0]) + '.pyx'):
+                        _clean_me.append(pjoin(root, f))
+
             for d in dirs:
                 if d == '__pycache__':
                     _clean_trees.append(pjoin(root, d))
-        
-        # remove generated cython files
-        if self.all:
-            for root, dirs, files in os.walk(pjoin('zmq', 'backend', 'cython')):
-                 if os.path.splitext(f)[-1] == '.c':
-                     _clean_me.append(pjoin(root, f))
-        
+
         bundled = glob(pjoin('zmq', 'libzmq*'))
         _clean_me.extend([ b for b in bundled if b not in _clean_me ])
-        
+
         bundled_headers = glob(pjoin('zmq', 'include', '*.h'))
         _clean_me.extend([ h for h in bundled_headers if h not in _clean_me])
-        
+
         for clean_me in _clean_me:
             print("removing %s" % clean_me)
             try:
@@ -956,7 +963,7 @@ class CheckSDist(sdist):
 
 class CheckingBuildExt(build_ext):
     """Subclass build_ext to get clearer report if Cython is necessary."""
-    
+
     def check_cython_extensions(self, extensions):
         for ext in extensions:
           for src in ext.sources:
@@ -965,22 +972,22 @@ class CheckingBuildExt(build_ext):
                 Cython >= %s is required to compile pyzmq from a development branch.
                 Please install Cython or download a release package of pyzmq.
                 """ % (src, min_cython_version))
-    
+
     def build_extensions(self):
         self.check_cython_extensions(self.extensions)
         self.check_extensions_list(self.extensions)
-        
+
         if self.compiler.compiler_type == 'mingw32':
             customize_mingw(self.compiler)
-        
+
         for ext in self.extensions:
             self.build_extension(ext)
-    
+
     def build_extension(self, ext):
         build_ext.build_extension(self, ext)
         ext_path = self.get_ext_fullpath(ext.name)
         patch_lib_paths(ext_path, self.compiler.library_dirs)
-    
+
     def run(self):
         # check version, to prevent confusing undefined constant errors
         self.distribution.run_command('configure')
@@ -989,16 +996,16 @@ class CheckingBuildExt(build_ext):
 
 class ConstantsCommand(Command):
     """Rebuild templated files for constants
-    
+
     To be run after adding new constants to `utils/constant_names`.
     """
     user_options = []
     def initialize_options(self):
-        return 
-    
+        return
+
     def finalize_options(self):
         pass
-    
+
     def run(self):
         from buildutils.constants import render_constants
         render_constants()
@@ -1040,6 +1047,7 @@ submodules = {
             'message':[libzmq, buffers, message, checkrc, mutex],
             'socket':[context, message, socket, libzmq, buffers, checkrc],
             '_device':[libzmq, socket, context, checkrc],
+            '_proxy_steerable':[libzmq, socket, checkrc],
             '_version':[libzmq],
     },
     'devices' : {
@@ -1060,17 +1068,17 @@ except Exception:
     cython = False
     suffix = '.c'
     cmdclass['build_ext'] = CheckingBuildExt
-    
+
     class MissingCython(Command):
-        
+
         user_options = []
-        
+
         def initialize_options(self):
             pass
-        
+
         def finalize_options(self):
             pass
-        
+
         def run(self):
             try:
                 import Cython
@@ -1084,38 +1092,38 @@ except Exception:
                         "found: %s" % (min_cython_version, cv or Cython)
                     )
     cmdclass['cython'] = MissingCython
-    
+
 else:
-    
+
     suffix = '.pyx'
-    
+
     class CythonCommand(build_ext_c):
         """Custom distutils command subclassed from Cython.Distutils.build_ext
-        to compile pyx->c, and stop there. All this does is override the 
+        to compile pyx->c, and stop there. All this does is override the
         C-compile method build_extension() with a no-op."""
-        
+
         description = "Compile Cython sources to C"
-        
+
         def build_extension(self, ext):
             pass
 
     class zbuild_ext(build_ext_c):
-        
+
         def build_extensions(self):
             if self.compiler.compiler_type == 'mingw32':
                 customize_mingw(self.compiler)
             return build_ext_c.build_extensions(self)
-        
+
         def build_extension(self, ext):
             build_ext_c.build_extension(self, ext)
             ext_path = self.get_ext_fullpath(ext.name)
             patch_lib_paths(ext_path, self.compiler.library_dirs)
-        
+
         def run(self):
             self.distribution.run_command('configure')
-            
+
             return build_ext_c.run(self)
-    
+
     cmdclass['cython'] = CythonCommand
     cmdclass['build_ext'] =  zbuild_ext
 
@@ -1146,7 +1154,7 @@ if pypy:
     bld_ext = cmdclass['build_ext']
     class pypy_build_ext(bld_ext):
         """hack to build pypy extension only after building bundled libzmq
-        
+
         otherwise it will fail when libzmq is bundled.
         """
         def build_extensions(self):
@@ -1171,7 +1179,7 @@ if pypy:
             finally:
                 sys.path.pop(0)
 
-    
+
     # How many build_ext subclasses is this? 5? Gross.
     cmdclass['build_ext'] = pypy_build_ext
 
@@ -1271,4 +1279,3 @@ if 'setuptools' in sys.modules:
         ]
 
 setup(**setup_args)
-

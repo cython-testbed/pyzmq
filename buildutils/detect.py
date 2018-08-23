@@ -17,6 +17,7 @@ import os
 import logging
 import platform
 from distutils import ccompiler
+from distutils.sysconfig import customize_compiler
 from subprocess import Popen, PIPE
 
 from .misc import get_compiler, get_output_error
@@ -25,7 +26,7 @@ from .patch import patch_lib_paths
 pjoin = os.path.join
 
 #-----------------------------------------------------------------------------
-# Utility functions (adapted from h5py: http://h5py.googlecode.com)
+# Utility functions (adapted from h5py: https://www.h5py.org/)
 #-----------------------------------------------------------------------------
 
 def test_compilation(cfile, compiler=None, **compiler_attrs):
@@ -108,6 +109,7 @@ def detect_zmq(basedir, compiler=None, **compiler_attrs):
     # check if we need to link against Realtime Extensions library
     if sys.platform.startswith('linux'):
         cc = ccompiler.new_compiler(compiler=compiler)
+        customize_compiler(cc)
         cc.output_dir = basedir
         if not cc.has_function('timer_create'):
             compiler_attrs['libraries'].append('rt')

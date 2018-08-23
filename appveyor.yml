@@ -11,6 +11,18 @@ environment:
     CMD_IN_ENV: "cmd /E:ON /V:ON /C .\\tools\\run_with_env.cmd"
 
   matrix:
+    - PYTHON: "C:\\Python37"
+      PYTHON_VERSION: "3.7.x"
+      PYTHON_ARCH: 32
+    - PYTHON: "C:\\Python37-x64"
+      PYTHON_VERSION: "3.7.x"
+      PYTHON_ARCH: 64
+    - PYTHON: "C:\\Python27"
+      PYTHON_VERSION: "2.7.x"
+      PYTHON_ARCH: 32
+    - PYTHON: "C:\\Python27-x64"
+      PYTHON_VERSION: "2.7.x"
+      PYTHON_ARCH: 64
     - PYTHON: "C:\\Python36"
       PYTHON_VERSION: "3.6.x"
       PYTHON_ARCH: 32
@@ -22,12 +34,6 @@ environment:
       PYTHON_ARCH: 32
     - PYTHON: "C:\\Python35-x64"
       PYTHON_VERSION: "3.5.x"
-      PYTHON_ARCH: 64
-    - PYTHON: "C:\\Python27"
-      PYTHON_VERSION: "2.7.x"
-      PYTHON_ARCH: 32
-    - PYTHON: "C:\\Python27-x64"
-      PYTHON_VERSION: "2.7.x"
       PYTHON_ARCH: 64
     - PYTHON: "C:\\Python34"
       PYTHON_VERSION: "3.4.x"
@@ -65,7 +71,7 @@ install:
   # Upgrade to the latest version of pip to avoid it displaying warnings
   # about it being out of date. Install wheel package separate so that
   # we also cache wheels
-  - pip install --upgrade pip wheel
+  - python -m pip install --upgrade pip wheel
   - pip install --upgrade setuptools cython -r test-requirements.txt
 
 build_script:

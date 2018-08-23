@@ -16,6 +16,7 @@ from .poll import Poller
 from . import constants
 from .attrsettr import AttributeSetter
 from zmq.error import ZMQError, ZMQBindError
+from zmq.utils import jsonapi
 from zmq.utils.strtypes import bytes, unicode, basestring
 
 
@@ -113,7 +114,7 @@ class Socket(SocketBase, AttributeSetter):
     #-------------------------------------------------------------------------
     # Hooks for sockopt completion
     #-------------------------------------------------------------------------
-    
+
     def __dir__(self):
         keys = dir(self.__class__)
         for collection in (
@@ -124,18 +125,21 @@ class Socket(SocketBase, AttributeSetter):
         ):
             keys.extend(collection)
         return keys
-    
+
     #-------------------------------------------------------------------------
     # Getting/Setting options
     #-------------------------------------------------------------------------
     setsockopt = SocketBase.set
     getsockopt = SocketBase.get
-    
+
     def __setattr__(self, key, value):
         """Override to allow setting zmq.[UN]SUBSCRIBE even though we have a subscribe method"""
+        if key in self.__dict__:
+            object.__setattr__(self, key, value)
+            return
         _key = key.lower()
         if _key in ('subscribe', 'unsubscribe'):
-            
+
             if isinstance(value, unicode):
                 value = value.encode('utf8')
             if _key == 'subscribe':
@@ -634,7 +638,6 @@ class Socket(SocketBase, AttributeSetter):
         flags : int
             Any valid flags for :func:`Socket.send`
         """
-        from zmq.utils import jsonapi
         send_kwargs = {}
         for key in ('routing_id', 'group'):
             if key in kwargs:
@@ -662,7 +665,6 @@ class Socket(SocketBase, AttributeSetter):
         ZMQError
             for any of the reasons :func:`~Socket.recv` might fail
         """
-        from zmq.utils import jsonapi
         msg = self.recv(flags)
         return self._deserialize(msg, lambda buf: jsonapi.loads(buf, **kwargs))
 

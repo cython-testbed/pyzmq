@@ -2,6 +2,11 @@
 # Copyright (C) PyZMQ Developers
 # Distributed under the terms of the Modified BSD License.
 
+from __future__ import absolute_import
+try:
+    import asyncio
+except ImportError:
+    asyncio = None
 
 from unittest import TestCase
 
@@ -19,8 +24,11 @@ class TestZMQStream(TestCase):
     def setUp(self):
         if tornado is None:
             pytest.skip()
+        if asyncio:
+            asyncio.set_event_loop(asyncio.new_event_loop())
         self.context = zmq.Context()
-        self.loop = ioloop.IOLoop.instance()
+        self.loop = ioloop.IOLoop()
+        self.loop.make_current()
         self.push = zmqstream.ZMQStream(self.context.socket(zmq.PUSH))
         self.pull = zmqstream.ZMQStream(self.context.socket(zmq.PULL))
         port = self.push.bind_to_random_port('tcp://127.0.0.1')
@@ -30,7 +38,7 @@ class TestZMQStream(TestCase):
     def tearDown(self):
         self.loop.close(all_fds=True)
         self.context.term()
-        ioloop.IOLoop.clear_instance()
+        ioloop.IOLoop.clear_current()
 
     def run_until_timeout(self, timeout=10):
         timed_out = []

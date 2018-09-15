@@ -413,7 +413,7 @@ class TestSocket(BaseZMQTestCase):
                 except AttributeError:
                     pass
             s.close()
-    
+
     def test_copy(self):
         s = self.socket(zmq.PUB)
         scopy = copy.copy(s)
@@ -423,7 +423,16 @@ class TestSocket(BaseZMQTestCase):
         self.assertEqual(s.underlying, scopy.underlying)
         self.assertEqual(s.underlying, sdcopy.underlying)
         s.close()
-    
+
+    def test_send_buffer(self):
+        a, b = self.create_bound_pair(zmq.PUSH, zmq.PULL)
+        for buffer_type in (memoryview, bytearray):
+            rawbytes = str(buffer_type).encode('ascii')
+            msg = buffer_type(rawbytes)
+            a.send(msg)
+            recvd = b.recv()
+            assert recvd == rawbytes
+
     def test_shadow(self):
         p = self.socket(zmq.PUSH)
         p.bind("tcp://127.0.0.1:5555")
@@ -438,13 +447,13 @@ class TestSocket(BaseZMQTestCase):
         p2.send(sent)
         rcvd = self.recv(s2)
         self.assertEqual(rcvd, sent)
-    
+
     def test_shadow_pyczmq(self):
         try:
             from pyczmq import zctx, zsocket
         except Exception:
             raise SkipTest("Requires pyczmq")
-        
+
         ctx = zctx.new()
         ca = zsocket.new(ctx, zmq.PUSH)
         cb = zsocket.new(ctx, zmq.PULL)
@@ -455,7 +464,7 @@ class TestSocket(BaseZMQTestCase):
         a.send(b'hi')
         rcvd = self.recv(b)
         self.assertEqual(rcvd, b'hi')
-    
+
     def test_subscribe_method(self):
         pub, sub = self.create_bound_pair(zmq.PUB, zmq.SUB)
         sub.subscribe('prefix')
@@ -476,7 +485,7 @@ class TestSocket(BaseZMQTestCase):
         pub.send(b'prefixmessage')
         events = p.poll(1000)
         self.assertEqual(events, [])
-    
+
     # Travis can't handle how much memory PyPy uses on this test
     @mark.skipif(
         (
@@ -488,16 +497,30 @@ class TestSocket(BaseZMQTestCase):
         ),
         reason="only run on 64b and not on Travis."
     )
+    @mark.large
     def test_large_send(self):
+        c = os.urandom(1)
+        N = 2**31 + 1
         try:
-            buf = os.urandom(1) * (2**31 + 1)
-        except MemoryError:
-            raise SkipTest()
+            buf = c * N
+        except MemoryError as e:
+            raise SkipTest("Not enough memory: %s" % e)
         a, b = self.create_bound_pair()
-        a.send(buf, copy=False)
-        rcvd = b.recv()
-        assert rcvd == buf
-    
+        try:
+            a.send(buf, copy=False)
+            rcvd = b.recv(copy=False)
+        except MemoryError as e:
+            raise SkipTest("Not enough memory: %s" % e)
+        # sample the front and back of the received message
+        # without checking the whole content
+        # Python 2: items in memoryview are bytes
+        # Python 3: items im memoryview are int
+        byte = c if sys.version_info < (3,) else ord(c)
+        view = memoryview(rcvd)
+        assert len(view) == N
+        assert view[0] == byte
+        assert view[-1] == byte
+
     def test_custom_serialize(self):
         a, b = self.create_bound_pair(zmq.DEALER, zmq.ROUTER)
         def serialize(msg):
@@ -506,7 +529,7 @@ class TestSocket(BaseZMQTestCase):
             content = json.dumps(msg['content']).encode('utf8')
             frames.append(content)
             return frames
-        
+
         def deserialize(frames):
             identities = frames[:-1]
             content = json.loads(frames[-1].decode('utf8'))

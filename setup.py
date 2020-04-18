@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
+#
 #-----------------------------------------------------------------------------
 #  Copyright (C) PyZMQ Developers
 #  Distributed under the terms of the Modified BSD License.
@@ -16,7 +18,9 @@
 
 from __future__ import with_statement, print_function
 
+from contextlib import contextmanager
 import copy
+import io
 import os
 import shutil
 import subprocess
@@ -40,7 +44,7 @@ from distutils.ccompiler import new_compiler
 from distutils.extension import Extension
 from distutils.command.build_ext import build_ext
 from distutils.command.sdist import sdist
-from distutils.sysconfig import customize_compiler
+from distutils.sysconfig import customize_compiler, get_config_var
 from distutils.version import LooseVersion as V
 
 from glob import glob
@@ -113,6 +117,20 @@ for idx, arg in enumerate(list(sys.argv)):
     if arg == '--enable-drafts':
         sys.argv.remove(arg)
         os.environ['ZMQ_DRAFT_API'] = '1'
+
+
+if not sys.platform.startswith('win'):
+    cxx_flags = os.getenv("CXXFLAGS", "")
+    if "-std" not in cxx_flags:
+        cxx_flags = "-std=c++11 " + cxx_flags
+        os.environ["CXXFLAGS"] = cxx_flags
+    if cxx_flags:
+        # distutils doesn't support $CXXFLAGS
+        cxx = os.getenv("CXX", get_config_var("CXX"))
+        # get_config_var is broken on some old versions of pypy, add a fallback
+        if cxx is None:
+            cxx = "c++ -pthread"
+        os.environ["CXX"] = cxx + " " + cxx_flags
 
 #-----------------------------------------------------------------------------
 # Configuration (adapted from h5py: https://www.h5py.org/)
@@ -363,8 +381,6 @@ class Configure(build_ext):
         settings.setdefault('include_dirs', [])
         settings['include_dirs'] += [pjoin('zmq', sub) for sub in (
             'utils',
-            pjoin('backend', 'cython'),
-            'devices',
         )]
         if sys.platform.startswith('win') and sys.version_info < (3, 3):
             settings['include_dirs'].insert(0, pjoin('buildutils', 'include_win32'))
@@ -509,7 +525,7 @@ class Configure(build_ext):
 
         stage_platform_hpp(pjoin(bundledir, 'zeromq'))
 
-        sources = [pjoin('buildutils', 'initlibzmq.c')]
+        sources = [pjoin('buildutils', 'initlibzmq.cpp')]
         sources += glob(pjoin(bundledir, 'zeromq', 'src', '*.cpp'))
 
         includes = [
@@ -550,13 +566,21 @@ class Configure(build_ext):
         # select polling subsystem based on platform
         if sys.platform  == 'darwin' or 'bsd' in sys.platform:
             libzmq.define_macros.append(('ZMQ_USE_KQUEUE', 1))
+            libzmq.define_macros.append(('ZMQ_IOTHREADS_USE_KQUEUE', 1))
+            libzmq.define_macros.append(('ZMQ_POLL_BASED_ON_POLL', 1))
         elif 'linux' in sys.platform:
             libzmq.define_macros.append(('ZMQ_USE_EPOLL', 1))
+            libzmq.define_macros.append(('ZMQ_IOTHREADS_USE_EPOLL', 1))
+            libzmq.define_macros.append(('ZMQ_POLL_BASED_ON_POLL', 1))
         elif sys.platform.startswith('win'):
             libzmq.define_macros.append(('ZMQ_USE_SELECT', 1))
+            libzmq.define_macros.append(('ZMQ_IOTHREADS_USE_SELECT', 1))
+            libzmq.define_macros.append(('ZMQ_POLL_BASED_ON_SELECT', 1))
         else:
             # this may not be sufficiently precise
             libzmq.define_macros.append(('ZMQ_USE_POLL', 1))
+            libzmq.define_macros.append(('ZMQ_IOTHREADS_USE_POLL', 1))
+            libzmq.define_macros.append(('ZMQ_POLL_BASED_ON_POLL', 1))
 
         if sys.platform.startswith('win'):
             # include defines from zeromq msvc project:
@@ -961,6 +985,49 @@ class CheckSDist(sdist):
                 assert os.path.isfile(cfile), msg
         sdist.run(self)
 
+
+@contextmanager
+def use_cxx(compiler):
+    """use C++ compiler in this context
+
+    used in fix_cxx which detects when C++ should be used
+    """
+    compiler_so_save = compiler.compiler_so[:]
+    compiler_so_cxx = compiler.compiler_cxx + compiler.compiler_so[1:]
+    # actually use CXX compiler
+    compiler.compiler_so = compiler_so_cxx
+    try:
+        yield
+    finally:
+        # restore original state
+        compiler.compiler_so = compiler_so_save
+
+
+@contextmanager
+def fix_cxx(compiler, extension):
+    """Fix C++ compilation to use C++ compiler
+
+    See https://bugs.python.org/issue1222585 for Python support for C++,
+    which apparently doesn't exist and only works by accident.
+    """
+    if compiler.detect_language(extension.sources) != "c++":
+        # no c++, nothing to do
+        yield
+        return
+    _compile_save = compiler._compile
+    def _compile_cxx(obj, src, ext, *args, **kwargs):
+        if compiler.language_map.get(ext) == "c++":
+            with use_cxx(compiler):
+                _compile_save(obj, src, ext, *args, **kwargs)
+        else:
+            _compile_save(obj, src, ext, *args, **kwargs)
+    compiler._compile = _compile_cxx
+    try:
+        yield
+    finally:
+        compiler._compile = _compile_save
+
+
 class CheckingBuildExt(build_ext):
     """Subclass build_ext to get clearer report if Cython is necessary."""
 
@@ -984,7 +1051,9 @@ class CheckingBuildExt(build_ext):
             self.build_extension(ext)
 
     def build_extension(self, ext):
-        build_ext.build_extension(self, ext)
+        with fix_cxx(self.compiler, ext):
+            build_ext.build_extension(self, ext)
+
         ext_path = self.get_ext_fullpath(ext.name)
         patch_lib_paths(ext_path, self.compiler.library_dirs)
 
@@ -1039,7 +1108,8 @@ monqueue = pxd('devices', 'monitoredqueue')
 mutex = doth('utils', 'mutex')
 
 submodules = {
-    'backend.cython' : {'constants': [libzmq, pxi('backend', 'cython', 'constants')],
+    'backend.cython' : {
+            'constants': [libzmq, pxi('backend', 'cython', 'constants')],
             'error':[libzmq, checkrc],
             '_poll':[libzmq, socket, context, checkrc],
             'utils':[libzmq, checkrc],
@@ -1055,7 +1125,15 @@ submodules = {
     },
 }
 
-min_cython_version = '0.20'
+if sys.version_info >= (3, 7):
+    # require cython 0.29 on Python >= 3.7
+    min_cython_version = '0.29'
+    cython_language_level = '3str'
+else:
+    # be more lenient on old versions of Python
+    min_cython_version = '0.20'
+    cython_language_level = None
+
 try:
     import Cython
     if V(Cython.__version__) < V(min_cython_version):
@@ -1064,6 +1142,10 @@ try:
     from Cython.Distutils import build_ext as build_ext_c
     from Cython.Distutils import Extension
     cython = True
+    # 3str was added in Cython 0.29
+    # use it if available
+    if V(Cython.__version__) >= V('0.29'):
+        cython_language_level = '3str'
 except Exception:
     cython = False
     suffix = '.c'
@@ -1115,7 +1197,8 @@ else:
             return build_ext_c.build_extensions(self)
 
         def build_extension(self, ext):
-            build_ext_c.build_extension(self, ext)
+            with fix_cxx(self.compiler, ext):
+                build_ext.build_extension(self, ext)
             ext_path = self.get_ext_fullpath(ext.name)
             patch_lib_paths(ext_path, self.compiler.library_dirs)
 
@@ -1135,6 +1218,8 @@ ext_kwargs = {
 if cython:
     # set binding so that compiled methods can be inspected
     ext_kwargs['cython_directives'] = {'binding': True}
+    if cython_language_level:
+        ext_kwargs['cython_directives']['language_level'] = cython_language_level
 
 for submod, packages in submodules.items():
     for pkg in sorted(packages):
@@ -1228,11 +1313,8 @@ def find_packages():
 # Main setup
 #-----------------------------------------------------------------------------
 
-long_desc = \
-"""
-PyZMQ is the official Python binding for the ZeroMQ Messaging Library (http://www.zeromq.org).
-See `the docs <https://pyzmq.readthedocs.io>`_ for more info.
-"""
+with io.open('README.md', encoding='utf-8') as f:
+    long_desc = f.read()
 
 setup_args = dict(
     name = "pyzmq",
@@ -1245,6 +1327,7 @@ setup_args = dict(
     url = 'https://pyzmq.readthedocs.org',
     description = "Python bindings for 0MQ",
     long_description = long_desc,
+    long_description_content_type="text/markdown",
     license = "LGPL+BSD",
     cmdclass = cmdclass,
     classifiers = [
@@ -1270,7 +1353,7 @@ setup_args = dict(
 if 'setuptools' in sys.modules:
     setup_args['zip_safe'] = False
     # require Python 2.7, >= 3.3,
-    setup_args['python_requires'] = ">=2.7,!=3.0*,!=3.1*,!=3.2*"
+    setup_args['python_requires'] = ">=2.7,!=3.0.*,!=3.1.*,!=3.2.*"
 
     if pypy:
         setup_args['install_requires'] = [

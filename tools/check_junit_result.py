@@ -2,12 +2,18 @@ from __future__ import print_function
 
 import os
 import argparse
-from xml.etree import cElementTree
+try:
+    from xml.etree import cElementTree as ET
+except ImportError:
+    from xml.etree import ElementTree as ET
 
 
 def main(filename):
-    tree = cElementTree.parse(filename)
+    tree = ET.parse(filename)
     root = tree.getroot()
+    # find testsuite tag
+    if root.tag.lower() != "testsuite":
+        root = root.find("testsuite")
     attributes = root.attrib
     errors = int(attributes.get('errors', '0'))
     failures = int(attributes.get('failures', '0'))

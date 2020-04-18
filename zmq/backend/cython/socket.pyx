@@ -27,7 +27,7 @@
 cdef extern from "pyversion_compat.h":
     pass
 
-from libc.errno cimport ENAMETOOLONG, ENOTSOCK
+from libc.errno cimport ENAMETOOLONG, ENOENT, ENOTSOCK
 from libc.string cimport memcpy
 
 from cpython cimport PyBytes_FromStringAndSize
@@ -68,9 +68,9 @@ from .libzmq cimport (
     ZMQ_LINGER,
     ZMQ_TYPE,
 )
-from message cimport Frame, copy_zmq_msg_bytes
+from .message cimport Frame, copy_zmq_msg_bytes
 
-from context cimport Context
+from .context cimport Context
 
 cdef extern from "Python.h":
     ctypedef int Py_ssize_t
@@ -328,8 +328,6 @@ cdef class Socket:
             raise ZMQError()
         self._closed = False
         self._pid = getpid()
-        if context:
-            self.context._add_socket(self.handle)
 
     def __cinit__(self, *args, **kwargs):
         # basic init
@@ -386,9 +384,6 @@ cdef class Socket:
             # ignore ENOTSOCK (closed by Context)
             _check_rc(rc)
         self._closed = True
-        # during gc, self.context might be NULL
-        if self.context:
-            self.context._remove_socket(self.handle)
         self.handle = NULL
 
     def set(self, int option, optval):
@@ -542,6 +537,14 @@ cdef class Socket:
                                 'to check addr length (if it is defined).'
                                 .format(path, IPC_PATH_MAX_LEN))
                 raise ZMQError(msg=msg)
+            elif zmq_errno() == ENOENT:
+                # py3compat: address is bytes, but msg wants str
+                if str is unicode:
+                    addr = addr.decode('utf-8', 'replace')
+                path = addr.split('://', 1)[-1]
+                msg = ('No such file or directory for ipc path "{0}".'.format(
+                       path))
+                raise ZMQError(msg=msg)
         while True:
             try:
                 _check_rc(rc)
@@ -633,7 +636,7 @@ cdef class Socket:
         """
         cdef int rc
         cdef char* c_addr
-        
+
         _check_version((3,2), "disconnect")
         _check_closed(self)
         if isinstance(addr, unicode):
@@ -641,7 +644,7 @@ cdef class Socket:
         if not isinstance(addr, bytes):
             raise TypeError('expected str, got: %r' % addr)
         c_addr = addr
-        
+
         rc = zmq_disconnect(self.handle, c_addr)
         if rc != 0:
             raise ZMQError()
@@ -651,13 +654,13 @@ cdef class Socket:
 
         Start publishing socket events on inproc.
         See libzmq docs for zmq_monitor for details.
-        
+
         While this function is available from libzmq 3.2,
         pyzmq cannot parse monitor messages from libzmq prior to 4.0.
-        
+
         .. versionadded: libzmq-3.2
         .. versionadded: 14.0
-        
+
         Parameters
         ----------
         addr : str
@@ -669,7 +672,7 @@ cdef class Socket:
         """
         cdef int rc, c_flags
         cdef char* c_addr = NULL
-        
+
         _check_version((3,2), "monitor")
         if addr is not None:
             if isinstance(addr, unicode):
@@ -824,7 +827,7 @@ cdef class Socket:
             return _recv_copy(self.handle, flags)
         else:
             frame = _recv_frame(self.handle, flags, track)
-            frame.more = self.getsockopt(zmq.RCVMORE)
+            frame.more = self.get(zmq.RCVMORE)
             return frame
     
 

@@ -10,6 +10,62 @@ This is a coarse summary of changes in pyzmq versions.
 For a full changelog, consult the `git log <https://github.com/zeromq/pyzmq/commits>`_.
 
 
+19.0
+====
+
+- Cython backend: Build Cython extensions with language level "3str" (requires Cython 0.29)
+- Cython backend: You can now ``cimport zmq``
+- Asyncio: Fix memory leak in Poller
+- Log: Much improved logging in :mod:`zmq.log` (see :doc:`logging`)
+- Log: add `python -m zmq.log` entrypoint
+- Sources generated with Cython 0.29.15
+
+18.1.1
+======
+
+- Fix race condition when shutting down ZAP thread while events are still processing (only affects tests)
+- Publish wheels for Python 3.8 on all platforms
+- Stop publishing wheels for Python 3.4 on Windows
+- Sources generated with Cython 0.29.14
+
+18.1.0
+======
+
+- Compatibility with Python 3.8 release candidate by regenerating Cython courses with Cython 0.29.13
+- bump bundled libzmq to 4.3.2
+- handle cancelled futures in asyncio
+- make :meth:`zmq.Context.instance` fork-safe
+- fix errors in :meth:`zmq.Context.destroy` when opening and closing many sockets
+
+18.0.2
+======
+
+- Compatibility with Python 3.8 prerelease by regenerating Cython sources
+  with Cython 0.29.10.
+- Fix language_level=2 in Cython sources, for compatibility with Cython 0.30
+- Show missing path for ENOENT errors on ipc connections.
+
+18.0.1
+======
+
+Fixes installation from source on non-unicode locales with Python 3.
+There are no code changes in this release.
+
+18.0.0
+======
+
+- Update bundled libzmq to 4.3.1 (fixes CVE-2019-6250)
+- Added :func:`~zmq.proxy_steerable` and :class:`zmq.devices.ProxySteerable`
+- Added `bind_{in|out|mon}_to_random_port` variants for proxy device methods
+- Performance improvements for sends with asyncio
+- Fix sending memoryviews/bytearrays with cffi backend
+
+
+17.1.3
+======
+
+- Fix compatibility with tornado 6 (removal of stack_context)
+
 17.1.2
 ======
 

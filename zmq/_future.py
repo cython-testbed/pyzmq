@@ -114,6 +114,9 @@ class _AsyncPoller(_zmq.Poller):
 
 class _AsyncSocket(_zmq.Socket):
 
+
+    # Warning : these class variables are only here to allow to call super().__setattr__.
+    # They be overridden at instance initialization and not shared in the whole class
     _recv_futures = None
     _send_futures = None
     _state = 0
@@ -254,6 +257,13 @@ class _AsyncSocket(_zmq.Socket):
         def unwrap_result(f):
             if future.done():
                 return
+            if f.cancelled():
+                try:
+                    future.cancel()
+                except RuntimeError:
+                    # RuntimeError may be called during teardown
+                    pass
+                return
             if f.exception():
                 future.set_exception(f.exception())
             else:
@@ -295,14 +305,13 @@ class _AsyncSocket(_zmq.Socket):
         Avoids delaying cleanup until the next send/recv event,
         which may never come.
         """
-        if getattr(future, '_pyzmq_popped', False):
-            return
         for f_idx, (f, kind, kwargs, _) in enumerate(event_list):
             if f is future:
                 break
         else:
             return
-        future._pyzmq_popped = True
+
+        # "future" instance is shared between sockets, but each socket has its own event list.
         event_list.remove(event_list[f_idx])
 
     def _add_recv_event(self, kind, kwargs=None, future=None):
@@ -404,7 +413,6 @@ class _AsyncSocket(_zmq.Socket):
         f = None
         while self._recv_futures:
             f, kind, kwargs, _ = self._recv_futures.popleft()
-            f._pyzmq_popped = True
             # skip any cancelled futures
             if f.done():
                 f = None
@@ -443,7 +451,6 @@ class _AsyncSocket(_zmq.Socket):
         f = None
         while self._send_futures:
             f, kind, kwargs, msg = self._send_futures.popleft()
-            f._pyzmq_popped = True
             # skip any cancelled futures
             if f.done():
                 f = None

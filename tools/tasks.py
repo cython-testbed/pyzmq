@@ -21,7 +21,9 @@ import os
 import pipes
 import re
 import shutil
+from subprocess import check_output
 import sys
+import time
 
 from contextlib import contextmanager
 
@@ -32,17 +34,41 @@ PYZMQ_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PYZMQ_ROOT)
 from buildutils.bundle import vs as libzmq_vs
 
+libsodium_version = '1.0.18'
+
 pjoin = os.path.join
 
 repo = 'git@github.com:zeromq/pyzmq'
-branch = 'master'
+branch = os.getenv('PYZMQ_BRANCH', 'master')
+sdkroot = os.getenv("SDKROOT")
+if not sdkroot:
+    xcode_prefix = check_output(["xcode-select", "-p"]).decode().strip()
+    # 10.9
+    sdkroot = os.path.join(xcode_prefix, "Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.9.sdk")
+    if os.path.exists(sdkroot):
+        os.environ["SDKROOT"] = sdkroot
+    else:
+        print("SDK not found at %r" % sdkroot)
+        time.sleep(10)
 
 # Workaround for PyPy3 5.8
 if 'LDFLAGS' not in os.environ:
     os.environ['LDFLAGS'] = '-undefined dynamic_lookup'
 
+# set mac deployment target
+if 'MACOSX_DEPLOYMENT_TARGET' not in os.environ:
+    os.environ['MACOSX_DEPLOYMENT_TARGET'] = '10.9'
+
+# set compiler env (avoids issues with missing 'gcc-4.2' on py27, etc.)
+if 'CC' not in os.environ:
+    os.environ['CC'] = 'clang'
+
+if 'CXX' not in os.environ:
+    os.environ['CXX'] = 'clang++'
+
 _framework_py = lambda xy: "/Library/Frameworks/Python.framework/Versions/{0}/bin/python{0}".format(xy)
 py_exes = {
+    '3.8' : _framework_py('3.8'),
     '3.7' : _framework_py('3.7'),
     '2.7' : _framework_py('2.7'),
     '3.5' : _framework_py('3.5'),
@@ -52,9 +78,9 @@ py_exes = {
 }
 egg_pys = {} # no more eggs!
 
-default_py = '3.6'
+default_py = '3.7'
 # all the Python versions to be built on linux
-manylinux_pys = '3.7 2.7 3.5 3.6'
+manylinux_pys = '3.8 3.7 2.7 3.5 3.6'
 
 tmp = "/tmp"
 env_root = os.path.join(tmp, 'envs')
@@ -209,8 +235,9 @@ def bdist(ctx, py, wheel=True, egg=False):
 
     run(cmd)
 
+
 @task
-def manylinux(ctx, vs, upload=False):
+def manylinux(ctx, vs, upload=False, pythons=manylinux_pys):
     """Build manylinux wheels with Matthew Brett's manylinux-builds"""
     manylinux = '/tmp/manylinux-builds'
     if not os.path.exists(manylinux):
@@ -223,17 +250,30 @@ def manylinux(ctx, vs, upload=False):
 
     run("docker pull quay.io/pypa/manylinux1_x86_64")
     run("docker pull quay.io/pypa/manylinux1_i686")
-    base_cmd = "docker run --dns 8.8.8.8 --rm -e PYZMQ_VERSIONS='{vs}' -e PYTHON_VERSIONS='{pys}' -e ZMQ_VERSION='{zmq}' -v $PWD:/io".format(
-        vs=vs,
-        pys=manylinux_pys,
-        zmq=libzmq_vs,
-    )
+    base_cmd = ' '.join([
+        "docker",
+        "run",
+        "--dns=8.8.8.8",
+        "--rm",
+        "-e",
+        "PYZMQ_VERSIONS='{}'".format(vs),
+        "-e",
+        "PYTHON_VERSIONS='{}'".format(pythons),
+        "-e",
+        "ZMQ_VERSION='{}'".format(libzmq_vs),
+        "-e",
+        "LIBSODIUM_VERSION='{}'".format(libsodium_version),
+        "-v",
+        "$PWD:/io",
+    ])
+
     with cd(manylinux):
         run(base_cmd +  " quay.io/pypa/manylinux1_x86_64 /io/build_pyzmqs.sh")
         run(base_cmd +  " quay.io/pypa/manylinux1_i686 linux32 /io/build_pyzmqs.sh")
     if upload:
         py = make_env(default_py, 'twine')
         run(['twine', 'upload', os.path.join(manylinux, 'wheelhouse', '*')])
+
 
 @task
 def release(ctx, vs, upload=False):
@@ -260,7 +300,7 @@ def release(ctx, vs, upload=False):
     manylinux(ctx, vs, upload=upload)
     if upload:
         print("When AppVeyor finished building, upload artifacts with:")
-        print("  invoke appveyor_artifacts {} --upload".format(vs))
+        print("  invoke appveyor-artifacts {} --upload".format(vs))
 
 
 _appveyor_api = 'https://ci.appveyor.com/api'

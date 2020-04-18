@@ -77,8 +77,6 @@ class Socket(object):
         if self._zmq_socket == ffi.NULL:
             raise ZMQError()
         self._closed = False
-        if context:
-            self._ref = context._add_socket(self)
     
     @property
     def underlying(self):
@@ -117,8 +115,6 @@ class Socket(object):
                     self.set(zmq.LINGER, linger)
                 rc = C.zmq_close(self._zmq_socket)
             self._closed = True
-            if self.context:
-                self.context._rm_socket(self._ref)
         if rc < 0:
             _check_rc(rc)
 
@@ -135,6 +131,14 @@ class Socket(object):
                 msg = ('ipc path "{0}" is longer than {1} '
                                 'characters (sizeof(sockaddr_un.sun_path)).'
                                 .format(path, IPC_PATH_MAX_LEN))
+                raise ZMQError(C.zmq_errno(), msg=msg)
+            elif C.zmq_errno() == errno_mod.ENOENT:
+                # py3compat: address is bytes, but msg wants str
+                if str is unicode:
+                    address = address.decode('utf-8', 'replace')
+                path = address.split('://', 1)[-1]
+                msg = ('No such file or directory for ipc path "{0}".'.format(
+                       path))
                 raise ZMQError(C.zmq_errno(), msg=msg)
             else:
                 _check_rc(rc)
@@ -261,7 +265,7 @@ class Socket(object):
         events : int [default: zmq.EVENT_ALL]
             The zmq event bitmask for which events will be sent to the monitor.
         """
-        
+
         _check_version((3,2), "monitor")
         if events < 0:
             events = zmq.EVENT_ALL

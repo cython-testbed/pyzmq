@@ -153,6 +153,8 @@ def bundled_settings(debug):
         # link against libzmq in build dir:
         plat = distutils.util.get_platform()
         temp = 'temp.%s-%i.%i' % (plat, sys.version_info[0], sys.version_info[1])
+        if hasattr(sys, 'gettotalrefcount'):
+            temp += '-pydebug'
         suffix = ''
         if sys.version_info >= (3,5):
             # Python 3.5 adds EXT_SUFFIX to libs
@@ -160,7 +162,6 @@ def bundled_settings(debug):
             suffix = os.path.splitext(ext_suffix)[0]
 
         if debug:
-            suffix = '_d' + suffix
             release = 'Debug'
         else:
             release = 'Release'
